@@ -3,4 +3,5 @@ __pycache__/
 models/
 error_dumps/
 runs/
+figures/
 
