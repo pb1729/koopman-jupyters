@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from sims import sims
+
 
 # BASE SOURCE CODE FOR CONDITIONAL WGAN
 #  * Uses CIFAR-10
@@ -10,8 +12,8 @@ import torch.nn.functional as F
 
 device = "cuda"
 batch = 32      # batch size
-lr_d = 0.0005   # learning rate for discriminator
-lr_g = 0.0002   # learning rate for generator
+lr_d = 0.0008   # learning rate for discriminator
+lr_g = 0.0003   # learning rate for generator
 beta_1 = 0.5    # Adam parameter
 beta_2 = 0.99   # Adam parameter
 k_L = 1.        # Lipschitz constant
@@ -21,22 +23,56 @@ nz = 100        # Size of z latent vector (i.e. size of generator input)
 ngf = 64        # Size of feature maps in generator
 ndf = 64        # Size of feature maps in discriminator
 
-# TODO: maybe make it easier to change this???
-include_velocity = False # True if coordinates are (x,v) and False if coordinates are (x)
-koopman_vector = True # True if the condition is just on the koopman vector
-space_dim = 1   # Number of dimensions that an individual particle moves in
+
+# TODO: maybe make it easier to change conditioning???
+
+def get_get_cond_all(state_dim):
+  """ given a state dim, the condition is given by the entire state """
+  def get_cond_all(data):
+    return data
+  return get_cond_all, state_dim
+
+
+def get_get_cond_koopman(koopman_model):
+  """ given a KoopmanModel, the condition is given by that model """
+  def get_cond_koopman(data):
+    with torch.no_grad():
+      ans = koopman_model.eigenfn_0(data)
+    return ans.detach()
+  return get_cond_koopman, koopman_model.out_dim
+
+
+# define conditioning for this run:
+X_ONLY = True # True if coordinates are (x) and False if coordinates are (x,v)
+USE_KOOPMAN_EIGENFN = False
+#SIM = sims["SHO, Langevin"]
+SIM = sims["1D Polymer, Ornstein Uhlenbeck"]
+if X_ONLY:
+  STATE_DIM = SIM.dim
+else:
+  STATE_DIM = 2*SIM.dim
+if USE_KOOPMAN_EIGENFN:
+  GET_COND, COND_DIM = get_get_cond_koopman(KoopmanModel.load("models/e_1.koop.pt"))
+else:
+  GET_COND, COND_DIM = get_get_cond_all(STATE_DIM)
+SUBTRACT_MEAN = 0 # 0 if we don't subtract mean, otherwise is the number of dimensions that an individual particle moves in
+assert not (SUBTRACT_MEAN and USE_KOOPMAN_EIGENFN) # should not subtract mean if we're using the Koopman eigenfunctions...
+
+
+def get_input_preproc(state_dim):
+  """ preprocess input by subtracting mean if necessary """
+  layer_list = []
+  if SUBTRACT_MEAN:
+    layer_list.append(SubtractMean(state_dim, SUBTRACT_MEAN) if X_ONLY else SubtractMeanPos(state_dim, SUBTRACT_MEAN))
+  return nn.Sequential(*layer_list)
 
 
 class EncCondition(nn.Module):
   def __init__(self, state_dim, dim_out, space_dim=1):
     super(EncCondition, self).__init__()
-    if not koopman_vector:
-      layer_list = [SubtractMeanPos(state_dim, space_dim) if include_velocity else SubtractMean(state_dim, space_dim)]
-    else:
-      layer_list = []
     self.layers = nn.Sequential(
-      *layer_list,
-      nn.Linear(state_dim, dim_out),
+      get_input_preproc(state_dim),
+      nn.Linear(state_dim, dim_out)
     )
   def forward(self, x):
     return self.layers(x)
@@ -78,7 +114,7 @@ class Discriminator(nn.Module):
   def __init__(self, state_dim, cond_dim):
     super(Discriminator, self).__init__()
     self.layers_1 = nn.Sequential(
-      SubtractMeanPos(state_dim, space_dim) if include_velocity else SubtractMean(state_dim, space_dim),
+      get_input_preproc(state_dim),
       nn.Linear(state_dim, ndf),
       nn.LeakyReLU(0.2, inplace=True))
     self.cond_enc_1 = EncCondition(cond_dim, ndf)

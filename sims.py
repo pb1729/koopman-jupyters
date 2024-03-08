@@ -88,7 +88,12 @@ def get_polymer_a(k, n, dim=3):
 
 
 sims = {
-    "1D Ornstein Uhlenbeck": TrajectorySim(
+    "SHO, Langevin": TrajectorySim(
+        (lambda x: -x),
+        torch.tensor([1.0], dtype=torch.float64), 1.0,
+        1.0, 60
+    ),
+    "SHO, Ornstein Uhlenbeck": TrajectorySim(
         (lambda x: -x),
         torch.tensor([10.], dtype=torch.float64), 1.0,
         3.0, 60

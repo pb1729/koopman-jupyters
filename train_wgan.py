@@ -1,32 +1,11 @@
 import torch
 
 from sims import sims, dataset_gen
-from wgan import GANTrainer
+from wgan import GANTrainer, GET_COND, COND_DIM, STATE_DIM, SUBTRACT_MEAN, X_ONLY, SIM
 from run_visualization import TensorBoard
 from vampnets import KoopmanModel
 
 
-def get_get_cond_all(state_dim):
-  """ given a state dim, the condition is given by the entire state """
-  def get_cond_all(data):
-    return data
-  return get_cond_all, state_dim
-
-
-def get_get_cond_koopman(koopman_model):
-  """ given a KoopmanModel, the condition is given by that model """
-  def get_cond_koopman(data):
-    with torch.no_grad():
-      ans = koopman_model.eigenfn_0(data)
-    return ans.detach()
-  return get_cond_koopman, koopman_model.out_dim
-
-
-# define conditioning for this run:
-if True:
-  GET_COND, COND_DIM = get_get_cond_all(12)
-else:
-  GET_COND, COND_DIM = get_get_cond_koopman(KoopmanModel.load("models/e_1.koop.pt"))
 # other constants:
 BATCH = 256
 
@@ -48,7 +27,7 @@ def train(gan, save_path):
   run_name = ".".join(save_path.split("/")[-1].split(".")[:-1])
   print(run_name)
   board = TensorBoard(run_name)
-  data_generator = dataset_gen(sims["1D Polymer, Ornstein Uhlenbeck"], 4096, 64, t_eql=120, subtract_cm=1, x_only=True) # TODO: see note on predicting relative change...
+  data_generator = dataset_gen(SIM, 4096, 64, t_eql=120, subtract_cm=SUBTRACT_MEAN, x_only=X_ONLY)
   for i, trajs in enumerate(batchify(data_generator, BATCH)):
     if i % 4096 == 0:
       print("\nsaving...")
@@ -70,8 +49,7 @@ def train(gan, save_path):
 
 def main(save_path, load_path=None):
   if load_path is None:
-    # TODO: state dim hardcoded here!
-    gan = GANTrainer.makenew(12, COND_DIM)
+    gan = GANTrainer.makenew(STATE_DIM, COND_DIM)
   else:
     gan = GANTrainer.load(load_path)
   train(gan, save_path)
