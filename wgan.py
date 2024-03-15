@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from sims import sims
+from configs import Config, Condition
 
 
 # BASE SOURCE CODE FOR CONDITIONAL WGAN
@@ -24,55 +24,24 @@ ngf = 64        # Size of feature maps in generator
 ndf = 64        # Size of feature maps in discriminator
 
 
-# TODO: maybe make it easier to change conditioning???
 
-def get_get_cond_all(state_dim):
-  """ given a state dim, the condition is given by the entire state """
-  def get_cond_all(data):
-    return data
-  return get_cond_all, state_dim
-
-
-def get_get_cond_koopman(koopman_model):
-  """ given a KoopmanModel, the condition is given by that model """
-  def get_cond_koopman(data):
-    with torch.no_grad():
-      ans = koopman_model.eigenfn_0(data)
-    return ans.detach()
-  return get_cond_koopman, koopman_model.out_dim
-
-
-# define conditioning for this run:
-X_ONLY = True # True if coordinates are (x) and False if coordinates are (x,v)
-USE_KOOPMAN_EIGENFN = False
-#SIM = sims["SHO, Langevin"]
-SIM = sims["1D Polymer, Ornstein Uhlenbeck"]
-if X_ONLY:
-  STATE_DIM = SIM.dim
-else:
-  STATE_DIM = 2*SIM.dim
-if USE_KOOPMAN_EIGENFN:
-  GET_COND, COND_DIM = get_get_cond_koopman(KoopmanModel.load("models/e_1.koop.pt"))
-else:
-  GET_COND, COND_DIM = get_get_cond_all(STATE_DIM)
-SUBTRACT_MEAN = 0 # 0 if we don't subtract mean, otherwise is the number of dimensions that an individual particle moves in
-assert not (SUBTRACT_MEAN and USE_KOOPMAN_EIGENFN) # should not subtract mean if we're using the Koopman eigenfunctions...
-
-
-def get_input_preproc(state_dim):
+def get_input_preproc_layers(config):
   """ preprocess input by subtracting mean if necessary """
   layer_list = []
-  if SUBTRACT_MEAN:
-    layer_list.append(SubtractMean(state_dim, SUBTRACT_MEAN) if X_ONLY else SubtractMeanPos(state_dim, SUBTRACT_MEAN))
-  return nn.Sequential(*layer_list)
+  if config.cond_type == Condition.COORDS and config.subtract_mean:
+    if config.x_only:
+      layer_list.append(SubtractMean(config.state_dim, config.subtract_mean))
+    else:
+      layer_list.append(SubtractMeanPos(config.state_dim, config.subtract_mean))
+  return layer_list
 
 
 class EncCondition(nn.Module):
-  def __init__(self, state_dim, dim_out, space_dim=1):
+  def __init__(self, config, dim_out):
     super(EncCondition, self).__init__()
     self.layers = nn.Sequential(
-      get_input_preproc(state_dim),
-      nn.Linear(state_dim, dim_out)
+      *get_input_preproc_layers(config),
+      nn.Linear(config.cond_dim, dim_out)
     )
   def forward(self, x):
     return self.layers(x)
@@ -111,28 +80,29 @@ class SubtractMeanPos(nn.Module):
 
 
 class Discriminator(nn.Module):
-  def __init__(self, state_dim, cond_dim):
+  def __init__(self, config):
     super(Discriminator, self).__init__()
+    state_dim, cond_dim = config.state_dim, config.cond_dim
     self.layers_1 = nn.Sequential(
-      get_input_preproc(state_dim),
+      *get_input_preproc_layers(config),
       nn.Linear(state_dim, ndf),
       nn.LeakyReLU(0.2, inplace=True))
-    self.cond_enc_1 = EncCondition(cond_dim, ndf)
+    self.cond_enc_1 = EncCondition(config, ndf)
     self.layers_2 = nn.Sequential(
       nn.Linear(ndf, ndf),
       nn.BatchNorm1d(ndf),
       nn.LeakyReLU(0.2, inplace=True))
-    self.cond_enc_2 = EncCondition(cond_dim, ndf)
+    self.cond_enc_2 = EncCondition(config, ndf)
     self.layers_3 = nn.Sequential(
       nn.Linear(ndf, ndf),
       nn.BatchNorm1d(ndf),
       nn.LeakyReLU(0.2, inplace=True))
-    self.cond_enc_3 = EncCondition(cond_dim, ndf)
+    self.cond_enc_3 = EncCondition(config, ndf)
     self.layers_4 = nn.Sequential(
       nn.Linear(ndf, ndf),
       nn.BatchNorm1d(ndf),
       nn.LeakyReLU(0.2, inplace=True))
-    self.cond_enc_4 = EncCondition(cond_dim, ndf)
+    self.cond_enc_4 = EncCondition(config, ndf)
     self.layers_5 = nn.Sequential(
       nn.Linear(ndf, ndf),
       nn.LeakyReLU(0.2, inplace=True),
@@ -147,23 +117,24 @@ class Discriminator(nn.Module):
 
 
 class Generator(nn.Module):
-  def __init__(self, state_dim, cond_dim):
+  def __init__(self, config):
     super(Generator, self).__init__()
+    state_dim, cond_dim = config.state_dim, config.cond_dim
     self.layers_1 = nn.Sequential(
       nn.Linear(nz, ngf),
       nn.BatchNorm1d(ngf),
       nn.LeakyReLU(0.2, inplace=True))
-    self.cond_enc_1 = EncCondition(cond_dim, ngf)
+    self.cond_enc_1 = EncCondition(config, ngf)
     self.layers_2 = nn.Sequential(
       nn.Linear(ngf, ngf),
       nn.BatchNorm1d(ngf),
       nn.LeakyReLU(0.2, inplace=True))
-    self.cond_enc_2 = EncCondition(cond_dim, ngf)
+    self.cond_enc_2 = EncCondition(config, ngf)
     self.layers_3 = nn.Sequential(
       nn.Linear(ngf, ngf),
       nn.BatchNorm1d(ngf),
       nn.LeakyReLU(0.2, inplace=True))
-    self.cond_enc_3 = EncCondition(cond_dim, ngf)
+    self.cond_enc_3 = EncCondition(config, ngf)
     self.layers_4 = nn.Sequential(
       nn.Linear(ngf, state_dim, bias=False))
   def forward(self, input, cond):
@@ -182,36 +153,37 @@ def weights_init(m):
 
 
 class GANTrainer:
-  def __init__(self, disc, gen, state_dim, cond_dim):
+  def __init__(self, disc, gen, config):
     self.disc = disc
     self.gen  = gen
-    self.state_dim = state_dim
-    self.cond_dim = cond_dim
+    self.config = config
     self.init_optim()
   @staticmethod
   def load(path):
     states = torch.load(path)
-    state_dim = states["state_dim"]
-    cond_dim = states["cond_dim"]
-    disc, gen = Discriminator(state_dim, cond_dim).to(device), Generator(state_dim, cond_dim).to(device)
+    config_args = states["args"]
+    config_kwargs = states["kwargs"]
+    config = Config(*config_args, **config_kwargs)
+    disc, gen = Discriminator(config).to(config.device), Generator(config).to(config.device)
     disc.load_state_dict(states["disc"])
     gen.load_state_dict(states["gen"])
-    return GANTrainer(disc, gen, state_dim, cond_dim)
+    return GANTrainer(disc, gen, config)
   @staticmethod
-  def makenew(state_dim, cond_dim):
-    disc, gen = Discriminator(state_dim, cond_dim).to(device), Generator(state_dim, cond_dim).to(device)
+  def makenew(config):
+    disc, gen = Discriminator(config).to(config.device), Generator(config).to(config.device)
     disc.apply(weights_init)
     gen.apply(weights_init)
-    return GANTrainer(disc, gen, state_dim, cond_dim)
+    return GANTrainer(disc, gen, config)
   def init_optim(self):
     self.optim_d = torch.optim.Adam(self.disc.parameters(), lr_d, (beta_1, beta_2))
     self.optim_g = torch.optim.Adam(self.gen.parameters(),  lr_g, (beta_1, beta_2))
   def save(self, path):
+    config_args, config_kwargs = self.config.get_args_and_kwargs()
     torch.save({
         "disc": self.disc.state_dict(),
         "gen": self.gen.state_dict(),
-        "state_dim": self.state_dim,
-        "cond_dim": self.cond_dim,
+        "args": config_args,
+        "kwargs": config_kwargs,
       }, path)
   def train_step(self, data, cond):
     loss_d = self.disc_step(data, cond)

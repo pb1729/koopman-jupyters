@@ -3,27 +3,29 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from wgan import GANTrainer
-from train_wgan import GET_COND, COND_DIM
 from sims import sims, get_dataset
 from polymer_util import rouse
 
 
+ITERATIONS = 1
 
-def get_continuation_dataset(N, contins, subtract_cm=0, x_only=False):
+
+
+def get_continuation_dataset(N, contins, config, iterations=1):
   """ get a dataset of many possible continued trajectories from each of N initial states """
   print("creating initial states...") # equilibriate for 120 steps...
-  initial_states = get_dataset(sims["1D Polymer, Ornstein Uhlenbeck"], N, 1, t_eql=120, subtract_cm=subtract_cm)[:, 0]
+  initial_states = get_dataset(config.sim, N, 1, t_eql=120, subtract_cm=config.subtract_mean)[:, 0]
   print("created.")
   # expand along another dim to enumerate continuations
-  state_dim = initial_states.shape[-1]
+  state_dim = initial_states.shape[-1] # this should include velocity, so we can't use config.state_dim, which may be x only
   xv_init = initial_states[:, None].expand(N, contins, state_dim).clone() # will be written to, so clone
   xv_init = xv_init.reshape(N*contins, state_dim)
   print("calculating continuations from initial states...")
-  xv_fin = get_dataset(sims["1D Polymer, Ornstein Uhlenbeck"], N*contins, 1, subtract_cm=subtract_cm,
-    x_init=xv_init[:, :state_dim//2], v_init=xv_init[:, state_dim//2:])
+  xv_fin = get_dataset(config.sim, N*contins, iterations, subtract_cm=config.subtract_mean,
+    x_init=xv_init[:, :state_dim//2], v_init=xv_init[:, state_dim//2:])[:, -1]
   print("done.")
   xv_fin = xv_fin.reshape(N, contins, state_dim)
-  if x_only:
+  if config.x_only:
     return initial_states[:, :state_dim//2], xv_fin[:, :, :state_dim//2]
   return initial_states, xv_fin
 
@@ -31,12 +33,12 @@ def get_continuation_dataset(N, contins, subtract_cm=0, x_only=False):
 def get_sample_step(gan_trainer):
   """ given a GANTrainer class and current state, predict the next state """
   gan_trainer.set_eval(True)
-  def sample_step(xv_init):
-    batch, _ = xv_init.shape
+  def sample_step(state):
+    batch, _ = state.shape
     latents = gan_trainer.get_latents(batch)
     with torch.no_grad():
-      xv_fin = gan_trainer.gen(latents, GET_COND(xv_init))
-    return xv_fin # TODO: see related note in train_wgan #+ xv_init # gan predicts difference from previous step
+      state_fin = gan_trainer.gen(latents, gan_trainer.config.cond(state))
+    return state_fin
   return sample_step
 
 
@@ -71,22 +73,31 @@ def eval_sample_step(sample_step, init_states, fin_statess):
     compare_predictions_x(pred_fin_states, fin_states)
 
 
-def main(fpath):
+def main(fpath, iterations=1):
   assert fpath is not None
+  # load the GAN
   gan = GANTrainer.load(fpath)
   gan.set_eval(True)
+  # define sampling function
   sample_step = get_sample_step(gan)
-  init_states, fin_states = get_continuation_dataset(20, 10000, subtract_cm=1, x_only=True)
+  def sample_steps(state):
+    ans = state
+    for i in range(iterations):
+      ans = sample_step(ans)
+    return ans
+  # get comparison data
+  init_states, fin_states = get_continuation_dataset(20, 10000, gan.config, iterations=iterations)
   init_states, fin_states = init_states.to(torch.float32), fin_states.to(torch.float32)
   print(fin_states.shape, init_states.shape)
-  eval_sample_step(sample_step, init_states, fin_states)
+  # compare!
+  eval_sample_step(sample_steps, init_states, fin_states)
 
 
 
 
 if __name__ == "__main__":
   from sys import argv
-  main(*argv[1:])
+  main(*argv[1:], iterations=ITERATIONS)
 
 
 

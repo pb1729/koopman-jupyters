@@ -38,13 +38,14 @@ def vvel_lng_batch(x, v, a, drag, T, dt, nsteps, device="cuda"):
 
 
 class TrajectorySim:
-    def __init__(self, acc_fn, drag, T, delta_t, t_res):
+    def __init__(self, acc_fn, drag, T, delta_t, t_res, metadata=None):
         """ Object representing a physical system for which we can generate trajectories.
         acc_fn : function defining the system, gives acceleration given position
         drag : vector of drag coefficients, also gives the shape of the position vector
         T : temperature
         delta_t : time spacing at which we take samples
-        t_res : time resolution, number of individual simulation steps per delta_t """
+        t_res : time resolution, number of individual simulation steps per delta_t
+        metadata: dict of additional useful information about the simulation """
         self.acc_fn = acc_fn
         self.drag = drag.to("cuda")
         self.T = T
@@ -52,6 +53,9 @@ class TrajectorySim:
         self.t_res = t_res
         self.dt = delta_t/t_res
         self.dim = drag.flatten().shape[0]
+        if metadata is not None:
+          for key in metadata:
+            setattr(self, key, metadata[key])
     def generate_trajectory(self, batch, N, x=None, v=None):
         """ generate trajectory from initial conditions x, v
             WARNING: initial condition tensors *will* be overwritten
@@ -69,9 +73,6 @@ class TrajectorySim:
             v_traj[:, i] = v
         return x_traj, v_traj
 
-
-# POLYMER (LINEAR CHAIN)
-polymer_length = 12
 
 def get_polymer_a(k, n, dim=3):
     """ Get an acceleration function defining a polymer system with n atoms and spring constant k
@@ -99,9 +100,16 @@ sims = {
         3.0, 60
     ),
     "1D Polymer, Ornstein Uhlenbeck": TrajectorySim(
-        get_polymer_a(1.0, polymer_length, dim=1),
-        torch.tensor([10.]*polymer_length, dtype=torch.float64), 1.0,
-        1.0, 20
+        get_polymer_a(1.0, 12, dim=1),
+        torch.tensor([10.]*12, dtype=torch.float64), 1.0,
+        1.0, 20,
+        metadata={"poly_len": 12}
+    ),
+    "1D Polymer, Ornstein Uhlenbeck, long": TrajectorySim(
+        get_polymer_a(1.0, 12, dim=1),
+        torch.tensor([10.]*12, dtype=torch.float64), 1.0,
+        140.0, 20*140, # tune the delta_t to equal a time constant for the slowest mode
+        metadata={"poly_len": 12}
     ),
 }
 

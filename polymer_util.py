@@ -1,4 +1,5 @@
 import numpy as np
+
 from sims import get_poly_eigen_1d
 
 
@@ -6,15 +7,28 @@ def rouse(n, length):
   """ get nth Rouse mode for polymer of a given length """
   return np.cos(n*np.pi*(0.5 + np.arange(length))/length) - 0.5*(n == 0)
 
+def rouse_k(n, length):
+  """ get spring constant for nth Rouse mode for polymer of given length """
+  return 4*(np.sin(0.5*np.pi*n/length))**2
 
-def tica_theory(n, polymer_length):
-  return np.exp(np.log(get_poly_eigen_1d())*4*(np.sin(0.5*np.pi*n/polymer_length))**2)
+def tica_theory(n, length):
+  return np.exp(np.log(get_poly_eigen_1d())*rouse_k(n, length))
+
+def rouse_block(length):
+  """ get the entire block of rouse mode coefficients for a given polymer length
+      ans: (length, length) --> ans[i_atom, n_mode] """
+  return np.stack([
+    rouse(n, length)
+    for n in range(length)
+  ], axis=-1)
 
 
 if __name__ == "__main__":
+  poly_len = 12
+  # decay rate of slowest mode:
+  print(tica_theory(1, poly_len), np.exp(-1))
   # test functionality by plotting the rouse modes...
   import matplotlib.pyplot as plt
-  poly_len = 12
   x = np.arange(0, poly_len)
   for n in range(poly_len):
     plt.scatter(x, rouse(n, poly_len))
