@@ -11,7 +11,6 @@ from configs import Config, Condition
 
 
 device = "cuda"
-batch = 32      # batch size
 lr_d = 0.0008   # learning rate for discriminator
 lr_g = 0.0003   # learning rate for generator
 beta_1 = 0.5    # Adam parameter
@@ -20,8 +19,8 @@ k_L = 1.        # Lipschitz constant
 in_str = 0.2    # Strength of Instance-Noise
 
 nz = 100        # Size of z latent vector (i.e. size of generator input)
-ngf = 64        # Size of feature maps in generator
-ndf = 64        # Size of feature maps in discriminator
+ngf = 128       # Size of feature maps in generator
+ndf = 128       # Size of feature maps in discriminator
 
 
 
@@ -158,12 +157,11 @@ class GANTrainer:
     self.gen  = gen
     self.config = config
     self.init_optim()
+  def init_optim(self):
+    self.optim_d = torch.optim.Adam(self.disc.parameters(), lr_d, (beta_1, beta_2))
+    self.optim_g = torch.optim.Adam(self.gen.parameters(),  lr_g, (beta_1, beta_2))
   @staticmethod
-  def load(path):
-    states = torch.load(path)
-    config_args = states["args"]
-    config_kwargs = states["kwargs"]
-    config = Config(*config_args, **config_kwargs)
+  def load_from_dict(states, config):
     disc, gen = Discriminator(config).to(config.device), Generator(config).to(config.device)
     disc.load_state_dict(states["disc"])
     gen.load_state_dict(states["gen"])
@@ -174,17 +172,11 @@ class GANTrainer:
     disc.apply(weights_init)
     gen.apply(weights_init)
     return GANTrainer(disc, gen, config)
-  def init_optim(self):
-    self.optim_d = torch.optim.Adam(self.disc.parameters(), lr_d, (beta_1, beta_2))
-    self.optim_g = torch.optim.Adam(self.gen.parameters(),  lr_g, (beta_1, beta_2))
-  def save(self, path):
-    config_args, config_kwargs = self.config.get_args_and_kwargs()
-    torch.save({
+  def save_to_dict(self):
+    return {
         "disc": self.disc.state_dict(),
         "gen": self.gen.state_dict(),
-        "args": config_args,
-        "kwargs": config_kwargs,
-      }, path)
+      }
   def train_step(self, data, cond):
     loss_d = self.disc_step(data, cond)
     loss_g = self.gen_step(cond)
@@ -222,9 +214,8 @@ class GANTrainer:
   def endpoint_penalty(self, x1, x2, y1, y2):
     dist = torch.sqrt(((x1 - x2)**2).mean(1))
     # one-sided L1 penalty:
-    penalty = F.relu(torch.abs(y1 - y2)/(dist*k_L + 1e-6) - 1.)
-    # weight by square root of separation
-    return penalty*torch.sqrt(dist)
+    l1_penalty = F.relu(torch.abs(y1 - y2)/(dist*k_L + 1e-6) - 1.)
+    return l1_penalty + 0.5*l1_penalty**2 # add a quadratic term...
   def get_latents(self, batchsz):
     """ sample latents for generator """
     return torch.randn(batchsz, nz, device=device)
@@ -235,6 +226,11 @@ class GANTrainer:
     else:
       self.disc.train()
       self.gen.train()
+
+
+
+# export model class:
+modelclass = GANTrainer
 
 
 

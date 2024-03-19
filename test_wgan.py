@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
-from wgan import GANTrainer
+from configs import load
 from sims import sims, get_dataset
 from polymer_util import rouse
 
@@ -30,14 +30,14 @@ def get_continuation_dataset(N, contins, config, iterations=1):
   return initial_states, xv_fin
 
 
-def get_sample_step(gan_trainer):
-  """ given a GANTrainer class and current state, predict the next state """
-  gan_trainer.set_eval(True)
+def get_sample_step(model):
+  """ given a model and current state, predict the next state """
+  model.set_eval(True)
   def sample_step(state):
     batch, _ = state.shape
-    latents = gan_trainer.get_latents(batch)
+    latents = model.get_latents(batch)
     with torch.no_grad():
-      state_fin = gan_trainer.gen(latents, gan_trainer.config.cond(state))
+      state_fin = model.gen(latents, model.config.cond(state))
     return state_fin
   return sample_step
 
@@ -76,7 +76,7 @@ def eval_sample_step(sample_step, init_states, fin_statess):
 def main(fpath, iterations=1):
   assert fpath is not None
   # load the GAN
-  gan = GANTrainer.load(fpath)
+  gan = load(fpath)
   gan.set_eval(True)
   # define sampling function
   sample_step = get_sample_step(gan)
