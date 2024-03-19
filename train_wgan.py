@@ -43,7 +43,7 @@ def train(gan, save_path):
 
 def main(save_path, load_path=None):
   if load_path is None:
-    config = Config("1D Polymer, Ornstein Uhlenbeck", "wgan",
+    config = Config("1D Polymer, Ornstein Uhlenbeck", "wgan_dn",
       cond=Condition.ROUSE, x_only=True, subtract_mean=1,
       batch=8, simlen=16,
       n_rouse_modes=3)

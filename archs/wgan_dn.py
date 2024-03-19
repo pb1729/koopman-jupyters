@@ -10,7 +10,6 @@ from configs import Config, Condition
 #  * Conditions on average color of the image
 
 
-device = "cuda"
 lr_d = 0.0008   # learning rate for discriminator
 lr_g = 0.0003   # learning rate for generator
 beta_1 = 0.5    # Adam parameter
@@ -41,6 +40,18 @@ class EncCondition(nn.Module):
     self.layers = nn.Sequential(
       *get_input_preproc_layers(config),
       nn.Linear(config.cond_dim, dim_out)
+    )
+  def forward(self, x):
+    return self.layers(x)
+
+
+class EncState(nn.Module):
+  def __init__(self, config, dim_out):
+    super(EncState, self).__init__()
+    self.layers = nn.Sequential(
+      nn.Linear(config.state_dim, 2*dim_out),
+      nn.LeakyReLU(0.2, inplace=True),
+      nn.Linear(2*dim_out, dim_out),
     )
   def forward(self, x):
     return self.layers(x)
@@ -124,23 +135,27 @@ class Generator(nn.Module):
       nn.BatchNorm1d(ngf),
       nn.LeakyReLU(0.2, inplace=True))
     self.cond_enc_1 = EncCondition(config, ngf)
+    self.noised_enc_1 = EncState(config, ngf)
     self.layers_2 = nn.Sequential(
       nn.Linear(ngf, ngf),
       nn.BatchNorm1d(ngf),
       nn.LeakyReLU(0.2, inplace=True))
     self.cond_enc_2 = EncCondition(config, ngf)
+    self.noised_enc_2 = EncState(config, ngf)
     self.layers_3 = nn.Sequential(
       nn.Linear(ngf, ngf),
       nn.BatchNorm1d(ngf),
       nn.LeakyReLU(0.2, inplace=True))
     self.cond_enc_3 = EncCondition(config, ngf)
+    self.noised_enc_3 = EncState(config, ngf)
     self.layers_4 = nn.Sequential(
       nn.Linear(ngf, state_dim, bias=False))
   def forward(self, input, cond):
-    y1 = self.layers_1(input) + self.cond_enc_1(cond)
-    y2 = self.layers_2(y1) + self.cond_enc_2(cond)
-    y3 = self.layers_3(y2) + self.cond_enc_3(cond)
-    return self.layers_4(y3)
+    z_vec, noised = input
+    y1 = self.layers_1(z_vec) + self.cond_enc_1(cond) + self.noised_enc_1(noised)
+    y2 = self.layers_2(y1) + self.cond_enc_2(cond) + self.noised_enc_2(noised)
+    y3 = self.layers_3(y2) + self.cond_enc_3(cond) + self.noised_enc_3(noised)
+    return noised - self.layers_4(y3)
 
 
 # custom weights initialization called on ``netG`` and ``netD``
@@ -191,10 +206,10 @@ class GANTrainer:
     g_data = g_data + in_str*torch.randn_like(g_data) # instance noise
     y_g = self.disc(g_data, cond)
     # sample-delta penalty on interpolated data
-    mix_factors1 = torch.rand(cond.shape[0], 1, device=device)
+    mix_factors1 = torch.rand(cond.shape[0], 1, device=self.config.device)
     mixed_data1 = mix_factors1*g_data + (1 - mix_factors1)*r_data
     y_mixed1 = self.disc(mixed_data1, cond)
-    mix_factors2 = torch.rand(cond.shape[0], 1, device=device)
+    mix_factors2 = torch.rand(cond.shape[0], 1, device=self.config.device)
     mixed_data2 = mix_factors2*g_data + (1 - mix_factors2)*r_data
     y_mixed2 = self.disc(mixed_data2, cond)
     ep_penalty = (self.endpoint_penalty(r_data, g_data, y_r, y_g)
@@ -225,7 +240,9 @@ class GANTrainer:
     return torch.sqrt(dist)*penalty
   def get_latents(self, batchsz):
     """ sample latents for generator """
-    return torch.randn(batchsz, nz, device=device)
+    return (
+      torch.randn(batchsz, nz, device=self.config.device),
+      20.*torch.randn(batchsz, self.config.state_dim, device=self.config.device))
   def set_eval(self, bool_eval):
     if bool_eval:
       self.disc.eval()
