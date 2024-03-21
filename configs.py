@@ -20,7 +20,7 @@ class Config:
   """ configuration class for training runs """
   def __init__(self, sim_name, arch_name,
                cond=Condition.COORDS, x_only=False, subtract_mean=0, device="cuda",
-               batch=16, simlen=16,
+               batch=16, simlen=16, t_eql=0,
                koopman_model_path=None, n_rouse_modes=None):
     self.sim_name = sim_name
     self.arch_name = arch_name
@@ -31,6 +31,7 @@ class Config:
     self.device = device
     self.batch = batch
     self.simlen = simlen
+    self.t_eql = t_eql
     if self.x_only:
       self.state_dim = self.sim.dim
     else:
@@ -86,6 +87,7 @@ class Config:
       "device": self.device,
       "batch": self.batch,
       "simlen": self.simlen,
+      "t_eql": self.t_eql,
       }
     for attr in ["koopman_model_path", "n_rouse_modes"]:
       if hasattr(self, attr):

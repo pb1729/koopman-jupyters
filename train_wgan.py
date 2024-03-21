@@ -24,13 +24,14 @@ def train(gan, save_path):
   board = TensorBoard(run_name)
   config = gan.config # configuration for this run...
   data_generator = dataset_gen(config.sim, 128*config.batch, config.simlen,
-    t_eql=120, subtract_cm=config.subtract_mean, x_only=config.x_only)
+    t_eql=config.t_eql, subtract_cm=config.subtract_mean, x_only=config.x_only)
   for i, trajs in enumerate(batchify(data_generator, config.batch)):
-    if i % 512 == 0 or i >= 65535:
+    if i % 512 == 511:
       print("\nsaving...")
       save(gan, save_path)
       print("saved.\n")
-      if i >= 65535: break # end training here
+      #if i >= 65535: break # end training here
+      if i >= 16384: break # end training here
     N, L, state_dim = trajs.shape
     cond = config.cond(trajs[:, :-1].reshape(N*(L - 1), state_dim))
     data = trajs[:, 1:].reshape(N*(L - 1), state_dim)
@@ -43,9 +44,9 @@ def train(gan, save_path):
 
 def main(save_path, load_path=None):
   if load_path is None:
-    config = Config("1D Polymer, Ornstein Uhlenbeck", "wgan_dn",
+    config = Config("1D Polymer, Ornstein Uhlenbeck, medium", "wgan_dn",
       cond=Condition.ROUSE, x_only=True, subtract_mean=1,
-      batch=8, simlen=16,
+      batch=8, simlen=16, t_eql=4,
       n_rouse_modes=3)
     gan = makenew(config)
   else:

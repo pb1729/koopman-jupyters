@@ -13,8 +13,8 @@ ITERATIONS = 1
 
 def get_continuation_dataset(N, contins, config, iterations=1):
   """ get a dataset of many possible continued trajectories from each of N initial states """
-  print("creating initial states...") # equilibriate for 120 steps...
-  initial_states = get_dataset(config.sim, N, 1, t_eql=120, subtract_cm=config.subtract_mean)[:, 0]
+  print("creating initial states...")
+  initial_states = get_dataset(config.sim, N, 1, t_eql=config.t_eql, subtract_cm=config.subtract_mean)[:, 0]
   print("created.")
   # expand along another dim to enumerate continuations
   state_dim = initial_states.shape[-1] # this should include velocity, so we can't use config.state_dim, which may be x only
@@ -42,18 +42,23 @@ def get_sample_step(model):
   return sample_step
 
 
-def compare_predictions_x(x_predicted, x_actual):
+def compare_predictions_x(x_init, x_predicted, x_actual):
+  x_init = x_init.cpu().numpy()
   x_actual = x_actual.cpu().numpy()
   x_predicted = x_predicted.cpu().numpy()
   fig = plt.figure(figsize=(20, 12))
   axes = []
   for n in range(12): # TODO: leave polymer length as a variable???
     w_x = rouse(n, 12)[None]
+    x_init_n = (w_x*x_init).sum(1)
     x_actual_n = (w_x*x_actual).sum(1)
     x_predicted_n = (w_x*x_predicted).sum(1)
     axes.append(fig.add_subplot(3, 4, n + 1))
     axes[-1].hist(x_actual_n,    range=(-20., 20.), bins=200, alpha=0.7)
     axes[-1].hist(x_predicted_n, range=(-20., 20.), bins=200, alpha=0.7)
+    axes[-1].scatter([x_init_n], [0], color="black") # show starting point...
+    axes[-1].scatter([x_actual_n.mean()], [0], color="blue")
+    axes[-1].scatter([x_predicted_n.mean()], [0], color="brown")
   plt.show()
   #plt.savefig("figures/direct1/%d.png" % np.random.randint(0, 10000))
   #plt.close()
@@ -70,7 +75,7 @@ def eval_sample_step(sample_step, init_states, fin_statess):
     init_state = init_states[i, None]
     fin_states = fin_statess[i]
     pred_fin_states = sample_step(init_state.expand(contins, -1))
-    compare_predictions_x(pred_fin_states, fin_states)
+    compare_predictions_x(init_state, pred_fin_states, fin_states)
 
 
 def main(fpath, iterations=1):
@@ -86,7 +91,7 @@ def main(fpath, iterations=1):
       ans = sample_step(ans)
     return ans
   # get comparison data
-  init_states, fin_states = get_continuation_dataset(20, 10000, gan.config, iterations=iterations)
+  init_states, fin_states = get_continuation_dataset(10, 10000, gan.config, iterations=iterations)
   init_states, fin_states = init_states.to(torch.float32), fin_states.to(torch.float32)
   print(fin_states.shape, init_states.shape)
   # compare!

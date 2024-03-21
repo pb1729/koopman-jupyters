@@ -111,6 +111,12 @@ sims = {
         140.0, 20*140, # tune the delta_t to equal a time constant for the slowest mode
         metadata={"poly_len": 12}
     ),
+    "1D Polymer, Ornstein Uhlenbeck, medium": TrajectorySim(
+        get_polymer_a(1.0, 12, dim=1),
+        torch.tensor([10.]*12, dtype=torch.float64), 1.0,
+        97.0, 16*97, # tune the delta_t so that slowest mode decays by about 1/2
+        metadata={"poly_len": 12}
+    ),
 }
 
 
